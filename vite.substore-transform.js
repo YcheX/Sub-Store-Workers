@@ -73,7 +73,12 @@ export function subStoreTransformPlugin() {
     function precompilePeggyParser(contents, id, pluginContext) {
         const match = /const\s+grammars\s*=\s*String\.raw`([\s\S]*?)`;/.exec(contents);
         if (!match) {
-            pluginContext.error(`[sub-store-transform] ${id} Peggy parser 预编译失败：未找到 grammars`);
+            // Sub-Store 2.36.32+ 将 trojan-uri.js 改写为手写解析器（不再内嵌 Peggy grammar），
+            // 这类文件无需预编译，原样放行；只有仍引用 peggy 却找不到 grammar 时才报错。
+            if (/\bpeggy\b/.test(contents)) {
+                pluginContext.error(`[sub-store-transform] ${id} Peggy parser 预编译失败：未找到 grammars`);
+            }
+            return null;
         }
 
         const parserSource = peggy.generate(match[1], {
@@ -123,7 +128,7 @@ export default function getParser() {
             contents = replaceEvalRequire(contents, 'stream/promises', 'globalThis.__stream_promises_shim__');
 
             contents = contents.replace(/const\s+isNode\s*=\s*eval\s*\(\s*`typeof\s+process\s*!==\s*"undefined"`\s*\)/g, 'const isNode = false');
-            contents = contents.replace(/const\s+isSurge\s*=\s*typeof\s+\$httpClient\s*!==\s*['"]undefined['"]\s*&&\s*!isLoon(?:\s*&&\s*!isEgern)?\s*;/g, 'const isSurge = true;');
+            contents = contents.replace(/const\s+isSurge\s*=\s*typeof\s+\$httpClient\s*!==\s*['"]undefined['"]\s*&&\s*!isLoon\s*;/g, 'const isSurge = true;');
 
             assertNoDangerousRequireResidue(contents, id, this);
 
@@ -138,7 +143,10 @@ export default function getParser() {
             }
 
             if (id.includes('sub-store/backend/src/core/proxy-utils/parsers/peggy/')) {
-                contents = precompilePeggyParser(contents, id, this);
+                const precompiled = precompilePeggyParser(contents, id, this);
+                if (precompiled !== null) {
+                    contents = precompiled;
+                }
             }
 
             if (id.includes('vendor/express.js')) {
